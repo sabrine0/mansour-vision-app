@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mansour-contracts"
+version = "0.1.0"
+description = "The event and stream contracts for MANSOUR Vision. Source of truth for producers and consumers."
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+dependencies = [
+    "pydantic>=2.9,<3",
+    "mansour-common",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<1",
+]
+
+[project.scripts]
+mansour-export-schemas = "mansour_contracts.export:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mansour_contracts = ["py.typed"]

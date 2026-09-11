@@ -1,0 +1,539 @@
+{
+  "$defs": {
+    "CameraHealth": {
+      "additionalProperties": false,
+      "description": "Camera health transition, plus a 10-second heartbeat.\n\n`last_frame_age_seconds` is the field that matters. Camera-offline is keyed\non frame staleness, not on whether the capture handle looks open: a dead\nnetwork stream leaves `read()` blocking for tens of seconds while the handle\nstill appears healthy.",
+      "properties": {
+        "calibration_valid": {
+          "default": false,
+          "type": "boolean"
+        },
+        "camera_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "decode_errors": {
+          "default": 0,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "camera.health",
+          "default": "camera.health",
+          "type": "string"
+        },
+        "last_frame_age_seconds": {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "producer": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reconnect_count": {
+          "default": 0,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": 1,
+          "type": "integer"
+        },
+        "sequence": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/$defs/CameraState"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "producer",
+        "camera_id",
+        "state",
+        "last_frame_age_seconds",
+        "sequence"
+      ],
+      "type": "object"
+    },
+    "CameraState": {
+      "description": "Observed camera state.\n\n`UNKNOWN` exists because `HRS-007` requires that the absence of an\nobservation never be reported as a good one. A camera whose state we cannot\nestablish is `UNKNOWN`, never `ONLINE`.",
+      "enum": [
+        "unknown",
+        "online",
+        "degraded",
+        "offline",
+        "tampered",
+        "maintenance"
+      ],
+      "type": "string"
+    },
+    "CameraTick": {
+      "additionalProperties": false,
+      "description": "Per-camera aggregate, 1 Hz. The specification's `detections`, summarised.",
+      "properties": {
+        "analytic_fps": {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "camera_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "class_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/DetectionClass"
+          },
+          "type": "object"
+        },
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "density_level": {
+          "$ref": "#/$defs/DensityLevel"
+        },
+        "event_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "camera.tick",
+          "default": "camera.tick",
+          "type": "string"
+        },
+        "inference_ms": {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "latency_ms": {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "mean_confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "person_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "producer": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "producer",
+        "camera_id",
+        "person_count",
+        "density_level",
+        "analytic_fps",
+        "latency_ms",
+        "inference_ms"
+      ],
+      "type": "object"
+    },
+    "CrossingEvent": {
+      "additionalProperties": false,
+      "description": "A directional line crossing.\n\nDeliberately carries **no track identifier**. The track that produced this\ncrossing died inside the worker, unpublished and unpersisted (ADR 0004).\n\nBecause there is no track id, the event's identity is its\n`(line, class, direction, sequence)` \u2014 the worker supplies a monotonically\nincreasing per-line sequence number so that two people crossing the same line\nin the same direction in the same second remain two events.",
+      "properties": {
+        "camera_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "detection_class": {
+          "$ref": "#/$defs/DetectionClass"
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction"
+        },
+        "event_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "crossing.event",
+          "default": "crossing.event",
+          "type": "string"
+        },
+        "line_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "producer": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "type": "integer"
+        },
+        "sequence": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "zone_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "producer",
+        "camera_id",
+        "line_id",
+        "detection_class",
+        "direction",
+        "sequence"
+      ],
+      "type": "object"
+    },
+    "DensityLevel": {
+      "description": "Fruin Level-of-Service bands (Detection SRS \u00a74.1).\n\n`UNCALIBRATED` is not a band. It is the assertion that this camera cannot\nexpress density in persons/m\u00b2 and therefore has no opinion. It must never be\nrendered as a colour, and it must never satisfy a crush-risk rule. A number\nthat looks authoritative and means nothing is the prohibited failure mode.",
+      "enum": [
+        "uncalibrated",
+        "normal",
+        "elevated",
+        "high",
+        "critical"
+      ],
+      "type": "string"
+    },
+    "DetectionClass": {
+      "description": "What the detector may emit.\n\nExactly the pretrained COCO classes named in ADR 0003. Everything else the\nspecification asks for is either a configured zone polygon, or a rule over\nthese, or a deferred custom-model item. Adding a member here without a model\nthat produces it would be a lie in the type system.",
+      "enum": [
+        "person",
+        "horse",
+        "dog",
+        "car",
+        "truck",
+        "bus",
+        "motorcycle",
+        "bicycle"
+      ],
+      "type": "string"
+    },
+    "Direction": {
+      "description": "Line-crossing polarity. Declared per line, never inferred from endpoint order.",
+      "enum": [
+        "in",
+        "out"
+      ],
+      "type": "string"
+    },
+    "RuleTrigger": {
+      "additionalProperties": false,
+      "description": "A zone or line predicate was satisfied. Feeds `alert-engine`.\n\nThis is not an alert. It is the observation from which the alert engine may\nraise one, subject to cooldown, arming, and clustering. The distinction is\nthe reason the worker does not need to know about cooldowns at all.",
+      "properties": {
+        "camera_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "config_version": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "context": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "dedup_key": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "event_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "rule.trigger",
+          "default": "rule.trigger",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "producer": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "rule": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "type": "integer"
+        },
+        "scope_key": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "zone_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "producer",
+        "rule",
+        "severity",
+        "scope_key",
+        "dedup_key",
+        "config_version"
+      ],
+      "type": "object"
+    },
+    "Severity": {
+      "description": "Alert severity (Operational SRS \u00a710).\n\n`EMERGENCY` is never suppressed, never batched, never subject to quiet hours,\nand never disarmed by a schedule. That is enforced downstream; the ordering\nhere is what makes it checkable.",
+      "enum": [
+        "info",
+        "warning",
+        "critical",
+        "emergency"
+      ],
+      "type": "string"
+    },
+    "ZoneTick": {
+      "additionalProperties": false,
+      "description": "Per-zone aggregate, 1 Hz.",
+      "properties": {
+        "anchor_age_seconds": {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "class_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/DetectionClass"
+          },
+          "type": "object"
+        },
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "density_level": {
+          "$ref": "#/$defs/DensityLevel"
+        },
+        "density_per_sqm": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "event_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "zone.tick",
+          "default": "zone.tick",
+          "type": "string"
+        },
+        "occupancy_confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "occupancy_estimate": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "producer": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "type": "integer"
+        },
+        "zone_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "producer",
+        "zone_id",
+        "occupancy_estimate",
+        "occupancy_confidence",
+        "anchor_age_seconds",
+        "density_level"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/CameraTick"
+    },
+    {
+      "$ref": "#/$defs/ZoneTick"
+    },
+    {
+      "$ref": "#/$defs/CrossingEvent"
+    },
+    {
+      "$ref": "#/$defs/CameraHealth"
+    },
+    {
+      "$ref": "#/$defs/RuleTrigger"
+    }
+  ],
+  "description": "Every event carried on the MANSOUR Vision event spine (ADR 0007). No event carries a track identifier, a person identifier, an embedding, or any biometric attribute (ADR 0004).",
+  "title": "SpineEvent"
+}

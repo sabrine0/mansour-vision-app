@@ -1,0 +1,107 @@
+# Root tooling configuration for the MANSOUR Vision Python monorepo.
+#
+# This file does not define a distributable package. Each service and shared
+# package under `services/` and `packages/` owns its own pyproject.toml. What
+# lives here is the configuration that must be identical across all of them:
+# linting, type checking, and test collection.
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["packages/contracts/typescript", "**/alembic/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "DTZ",  # flake8-datetimez — bans naive datetimes. See ADR data-model: all times are UTC-aware.
+    "T20",  # flake8-print — no stray print() in services; use structured logging
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+    "ASYNC",# flake8-async
+    "S",    # bandit security checks
+]
+ignore = [
+    "S101",  # assert: allowed, pytest depends on it
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may use hard-coded credentials in fixtures and bind to test hosts.
+"**/tests/**" = ["S105", "S106", "S104"]
+# CLI entrypoints talk to a terminal, not to a log aggregator.
+"scripts/*.py" = ["T20"]
+"packages/contracts/src/mansour_contracts/export.py" = ["T20"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mansour_common", "mansour_contracts", "mansour_api", "mansour_vision_worker", "mansour_alert_engine", "mansour_analytics"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+disallow_any_unimported = true
+show_error_codes = true
+pretty = true
+namespace_packages = true
+explicit_package_bases = true
+exclude = ["build/", "dist/", "alembic/versions/"]
+
+# Each package uses a src/ layout. Without this, mypy resolves the same file
+# under two module names (`packages.contracts.src.mansour_contracts` and
+# `mansour_contracts`) and refuses to continue. Always check by package
+# (`mypy -p mansour_common`), never by path.
+mypy_path = [
+    "packages/py-common/src",
+    "packages/contracts/src",
+    "services/core-api/src",
+    "services/vision-worker/src",
+    "services/alert-engine/src",
+    "services/analytics-consumer/src",
+]
+
+[[tool.mypy.overrides]]
+module = ["tests.*", "*.tests.*"]
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+asyncio_mode = "auto"
+testpaths = ["packages", "services"]
+python_files = ["test_*.py"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+    # Services legitimately share test-module basenames (`test_service.py`).
+    # The legacy `prepend` import mode inserts each tests/ dir on sys.path and
+    # then collides on the module name. `importlib` imports each file under its
+    # own fully-qualified name, which is what a monorepo needs.
+    "--import-mode=importlib",
+]
+consider_namespace_packages = true
+markers = [
+    "integration: requires PostgreSQL and Redis to be reachable",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["packages", "services"]
+omit = ["*/tests/*", "*/alembic/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+]

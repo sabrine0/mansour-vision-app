@@ -1,0 +1,94 @@
+{
+  "$defs": {
+    "CameraState": {
+      "description": "Observed camera state.\n\n`UNKNOWN` exists because `HRS-007` requires that the absence of an\nobservation never be reported as a good one. A camera whose state we cannot\nestablish is `UNKNOWN`, never `ONLINE`.",
+      "enum": [
+        "unknown",
+        "online",
+        "degraded",
+        "offline",
+        "tampered",
+        "maintenance"
+      ],
+      "title": "CameraState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Camera health transition, plus a 10-second heartbeat.\n\n`last_frame_age_seconds` is the field that matters. Camera-offline is keyed\non frame staleness, not on whether the capture handle looks open: a dead\nnetwork stream leaves `read()` blocking for tens of seconds while the handle\nstill appears healthy.",
+  "properties": {
+    "calibration_valid": {
+      "default": false,
+      "type": "boolean"
+    },
+    "camera_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "correlation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "decode_errors": {
+      "default": 0,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "event_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "camera.health",
+      "default": "camera.health",
+      "type": "string"
+    },
+    "last_frame_age_seconds": {
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "producer": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "reconnect_count": {
+      "default": 0,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "schema_version": {
+      "default": 1,
+      "type": "integer"
+    },
+    "sequence": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "state": {
+      "$ref": "#/$defs/CameraState"
+    }
+  },
+  "required": [
+    "event_id",
+    "occurred_at",
+    "producer",
+    "camera_id",
+    "state",
+    "last_frame_age_seconds",
+    "sequence"
+  ],
+  "title": "CameraHealth",
+  "type": "object"
+}

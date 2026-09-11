@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "DetectionClass": {
+      "description": "What the detector may emit.\n\nExactly the pretrained COCO classes named in ADR 0003. Everything else the\nspecification asks for is either a configured zone polygon, or a rule over\nthese, or a deferred custom-model item. Adding a member here without a model\nthat produces it would be a lie in the type system.",
+      "enum": [
+        "person",
+        "horse",
+        "dog",
+        "car",
+        "truck",
+        "bus",
+        "motorcycle",
+        "bicycle"
+      ],
+      "title": "DetectionClass",
+      "type": "string"
+    },
+    "Direction": {
+      "description": "Line-crossing polarity. Declared per line, never inferred from endpoint order.",
+      "enum": [
+        "in",
+        "out"
+      ],
+      "title": "Direction",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A directional line crossing.\n\nDeliberately carries **no track identifier**. The track that produced this\ncrossing died inside the worker, unpublished and unpersisted (ADR 0004).\n\nBecause there is no track id, the event's identity is its\n`(line, class, direction, sequence)` \u2014 the worker supplies a monotonically\nincreasing per-line sequence number so that two people crossing the same line\nin the same direction in the same second remain two events.",
+  "properties": {
+    "camera_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "correlation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "detection_class": {
+      "$ref": "#/$defs/DetectionClass"
+    },
+    "direction": {
+      "$ref": "#/$defs/Direction"
+    },
+    "event_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "crossing.event",
+      "default": "crossing.event",
+      "type": "string"
+    },
+    "line_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "producer": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "default": 1,
+      "type": "integer"
+    },
+    "sequence": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "zone_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "event_id",
+    "occurred_at",
+    "producer",
+    "camera_id",
+    "line_id",
+    "detection_class",
+    "direction",
+    "sequence"
+  ],
+  "title": "CrossingEvent",
+  "type": "object"
+}

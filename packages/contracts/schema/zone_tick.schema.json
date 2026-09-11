@@ -1,0 +1,121 @@
+{
+  "$defs": {
+    "DensityLevel": {
+      "description": "Fruin Level-of-Service bands (Detection SRS \u00a74.1).\n\n`UNCALIBRATED` is not a band. It is the assertion that this camera cannot\nexpress density in persons/m\u00b2 and therefore has no opinion. It must never be\nrendered as a colour, and it must never satisfy a crush-risk rule. A number\nthat looks authoritative and means nothing is the prohibited failure mode.",
+      "enum": [
+        "uncalibrated",
+        "normal",
+        "elevated",
+        "high",
+        "critical"
+      ],
+      "title": "DensityLevel",
+      "type": "string"
+    },
+    "DetectionClass": {
+      "description": "What the detector may emit.\n\nExactly the pretrained COCO classes named in ADR 0003. Everything else the\nspecification asks for is either a configured zone polygon, or a rule over\nthese, or a deferred custom-model item. Adding a member here without a model\nthat produces it would be a lie in the type system.",
+      "enum": [
+        "person",
+        "horse",
+        "dog",
+        "car",
+        "truck",
+        "bus",
+        "motorcycle",
+        "bicycle"
+      ],
+      "title": "DetectionClass",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Per-zone aggregate, 1 Hz.",
+  "properties": {
+    "anchor_age_seconds": {
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "class_counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/DetectionClass"
+      },
+      "type": "object"
+    },
+    "correlation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "density_level": {
+      "$ref": "#/$defs/DensityLevel"
+    },
+    "density_per_sqm": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "event_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "zone.tick",
+      "default": "zone.tick",
+      "type": "string"
+    },
+    "occupancy_confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "occupancy_estimate": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "producer": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "default": 1,
+      "type": "integer"
+    },
+    "zone_id": {
+      "format": "uuid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "occurred_at",
+    "producer",
+    "zone_id",
+    "occupancy_estimate",
+    "occupancy_confidence",
+    "anchor_age_seconds",
+    "density_level"
+  ],
+  "title": "ZoneTick",
+  "type": "object"
+}

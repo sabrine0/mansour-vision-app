@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mansour-vision-worker"
+version = "0.1.0"
+description = "Owns cameras: decode, detect, track, evaluate zones and lines, aggregate, publish."
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+
+# NOTE (ADR 0002): `ultralytics` must never appear here, at any version, for any
+# reason — not even to export weights. It is AGPL-3.0, and its network clause is
+# incompatible with proprietary deployment. Detection is RT-DETRv2 (Apache-2.0)
+# through ONNX Runtime; tracking is ByteTrack via `supervision` (MIT). CI
+# enforces this with a license gate, not with a code review.
+dependencies = [
+    "mansour-common",
+    "mansour-contracts",
+]
+
+[project.optional-dependencies]
+# The inference stack lands in Milestone 3, once the benchmark harness has fixed
+# the execution provider (ADR 0005). Declaring it now, unused, would ship a
+# 300 MB image that computes nothing.
+test = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<1",
+    "httpx>=0.27,<1",
+]
+
+[project.scripts]
+mansour-vision-worker = "mansour_vision_worker.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mansour_vision_worker = ["py.typed"]

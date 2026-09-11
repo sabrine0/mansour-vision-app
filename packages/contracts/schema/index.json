@@ -1,0 +1,10 @@
+{
+  "event_types": [
+    "camera.health",
+    "camera.tick",
+    "crossing.event",
+    "rule.trigger",
+    "zone.tick"
+  ],
+  "schema_version": 1
+}

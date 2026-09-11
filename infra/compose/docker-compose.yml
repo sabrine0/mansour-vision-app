@@ -1,0 +1,266 @@
+# MANSOUR Vision — local and single-host deployment.
+#
+# Run from the repository root:
+#   docker compose -f infra/compose/docker-compose.yml up -d
+#
+# Service boundaries mirror the failure domains in docs/architecture/system-overview.md.
+# The dependency conditions below are the compose expression of Volume II §25:
+# `vision-worker` does not depend on PostgreSQL at all, and its Redis dependency
+# is `service_started`, not `service_healthy` — a spine outage must degrade the
+# worker, never stop it. Detection is the one thing that must never stop.
+
+name: mansour-vision
+
+x-python-build: &python-build
+  context: ../..
+  dockerfile: infra/docker/python-service.Dockerfile
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  init: true
+  stop_grace_period: 30s
+  networks: [mansour]
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+x-postgres-env: &postgres-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-mansour}
+  POSTGRES_USER: ${POSTGRES_USER:-mansour}
+  POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+
+x-redis-env: &redis-env
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  REDIS_PASSWORD_FILE: /run/secrets/redis_password
+
+services:
+  # --------------------------------------------------------------------------
+  # Data plane
+  # --------------------------------------------------------------------------
+  postgres:
+    <<: *service-defaults
+    # TimescaleDB, not stock PostgreSQL: `camera_ticks` at 40 cameras x 12 classes
+    # is a hypertable, not a table (docs/architecture/data-model.md).
+    #
+    # The `-ha` variant, not the plain `timescaledb` image: it bundles PostGIS,
+    # which `01-extensions.sql` requires for zone geometry and for ground-plane
+    # occupancy de-duplication. The plain image has no PostGIS and initdb fails.
+    # Its PGDATA also differs, hence the volume path below.
+    image: timescale/timescaledb-ha:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mansour}
+      POSTGRES_USER: ${POSTGRES_USER:-mansour}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      # Fail loudly rather than silently accepting unauthenticated connections.
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    secrets: [postgres_password]
+    volumes:
+      - postgres-data:/home/postgres/pgdata
+      - ../postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mansour} -d ${POSTGRES_DB:-mansour}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+    # Not published to the host in production. Uncomment for local psql access.
+    # ports: ["5432:5432"]
+
+  redis:
+    <<: *service-defaults
+    image: redis:7.4-alpine
+    # appendonly: the spine must survive a restart. Losing the pending-entries
+    # list would silently drop every unacknowledged rule.trigger.
+    command:
+      - sh
+      - -c
+      - >-
+        exec redis-server
+        --requirepass "$$(cat /run/secrets/redis_password)"
+        --appendonly yes
+        --maxmemory 512mb
+        --maxmemory-policy noeviction
+    secrets: [redis_password]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'REDISCLI_AUTH="$$(cat /run/secrets/redis_password)" redis-cli ping | grep -q PONG',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # --------------------------------------------------------------------------
+  # Control plane
+  # --------------------------------------------------------------------------
+  core-api:
+    <<: *service-defaults
+    build:
+      <<: *python-build
+      args:
+        SERVICE: core-api
+        SERVICE_PACKAGE: mansour_api
+        GIT_SHA: ${GIT_SHA:-unknown}
+    environment:
+      <<: [*postgres-env, *redis-env]
+      API_ENVIRONMENT: ${ENVIRONMENT:-development}
+      API_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      API_PORT: "8000"
+      HEALTH_PORT: "8000"
+    secrets: [postgres_password, redis_password]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8000/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  # --------------------------------------------------------------------------
+  # Vision plane
+  # --------------------------------------------------------------------------
+  vision-worker:
+    <<: *service-defaults
+    build:
+      <<: *python-build
+      args:
+        SERVICE: vision-worker
+        SERVICE_PACKAGE: mansour_vision_worker
+        GIT_SHA: ${GIT_SHA:-unknown}
+    environment:
+      <<: *redis-env
+      WORKER_ENVIRONMENT: ${ENVIRONMENT:-development}
+      WORKER_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WORKER_WORKER_ID: worker-1
+      WORKER_ANALYTIC_FPS: "10"
+      WORKER_EXECUTION_PROVIDER: ${EXECUTION_PROVIDER:-CPUExecutionProvider}
+      HEALTH_PORT: "8080"
+    depends_on:
+      # `service_started`, deliberately. Waiting for Redis to be healthy would
+      # mean a spine outage prevents the worker from starting at all.
+      redis: { condition: service_started }
+    secrets: [redis_password]
+    # GPU. Uncomment once hardware is procured and ADR 0005's benchmark has run.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+
+  alert-engine:
+    <<: *service-defaults
+    build:
+      <<: *python-build
+      args:
+        SERVICE: alert-engine
+        SERVICE_PACKAGE: mansour_alert_engine
+        GIT_SHA: ${GIT_SHA:-unknown}
+    environment:
+      <<: [*postgres-env, *redis-env]
+      ALERT_ENGINE_ENVIRONMENT: ${ENVIRONMENT:-development}
+      ALERT_ENGINE_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HEALTH_PORT: "8080"
+    secrets: [postgres_password, redis_password]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  analytics-consumer:
+    <<: *service-defaults
+    build:
+      <<: *python-build
+      args:
+        SERVICE: analytics-consumer
+        SERVICE_PACKAGE: mansour_analytics
+        GIT_SHA: ${GIT_SHA:-unknown}
+    environment:
+      <<: [*postgres-env, *redis-env]
+      ANALYTICS_ENVIRONMENT: ${ENVIRONMENT:-development}
+      ANALYTICS_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HEALTH_PORT: "8080"
+    secrets: [postgres_password, redis_password]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  # --------------------------------------------------------------------------
+  # Media plane
+  #
+  # WebRTC/HLS is served by MediaMTX (MIT), not by code we write. Volume II §2.4
+  # and the system overview both call for WebRTC to the operator and HLS to the
+  # wall; a hand-rolled signalling server would be a liability with no upside.
+  # Annotation overlays are drawn client-side from camera.tick metadata, so one
+  # encoded stream serves every viewer.
+  # --------------------------------------------------------------------------
+  media-gateway:
+    <<: *service-defaults
+    image: bluenviron/mediamtx:1.9.3
+    environment:
+      MTX_PROTOCOLS: tcp
+      MTX_WEBRTCADDITIONALHOSTS: ${MEDIA_PUBLIC_HOST:-127.0.0.1}
+    volumes:
+      - ../mediamtx/mediamtx.yml:/mediamtx.yml:ro
+    ports:
+      - "8554:8554"   # RTSP ingest
+      - "8889:8889"   # WebRTC
+      - "8888:8888"   # HLS
+
+  # --------------------------------------------------------------------------
+  # Presentation
+  # --------------------------------------------------------------------------
+  dashboard:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: infra/docker/dashboard.Dockerfile
+    environment:
+      NODE_ENV: production
+      # Server-side only. The browser reaches the API through NGINX, same-origin.
+      CORE_API_URL: http://core-api:8000
+    depends_on:
+      core-api: { condition: service_healthy }
+
+  nginx:
+    <<: *service-defaults
+    image: nginx:1.27-alpine
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../nginx/conf.d:/etc/nginx/conf.d:ro
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      - core-api
+      - dashboard
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost/nginx-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+networks:
+  mansour:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+
+# Secrets are files, not environment variables: a file is not visible in
+# `docker inspect`, nor in a process's environment. `mansour_common.config.read_secret`
+# prefers the `*_FILE` form for exactly this reason.
+secrets:
+  postgres_password:
+    file: ../secrets/postgres_password
+  redis_password:
+    file: ../secrets/redis_password

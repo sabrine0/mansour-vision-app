@@ -1,0 +1,79 @@
+# MediaMTX (MIT) — the media plane.
+#
+# WebRTC to the operator console (sub-second, which matters when you are watching
+# a crowd surge) and HLS to the video wall. Annotation overlays are drawn
+# client-side from `camera.tick` metadata, never burned into the video, so one
+# encoded stream serves every viewer and an operator can toggle boxes off without
+# a server round-trip.
+#
+# MJPEG, which the prototype used, re-encodes every frame per viewer. Six
+# operators watching a 4x4 grid is 96 concurrent streams, and it collapses.
+
+logLevel: info
+logDestinations: [stdout]
+
+readTimeout: 10s
+writeTimeout: 10s
+writeQueueSize: 512
+
+# --- Ingest -----------------------------------------------------------------
+rtsp: yes
+rtspAddress: :8554
+# TCP only. UDP loses packets under load and the operator sees smearing at the
+# exact moment the picture matters.
+rtspTransports: [tcp]
+
+rtmp: no
+srt: no
+
+# --- Egress -----------------------------------------------------------------
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+
+hls: yes
+hlsAddress: :8888
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsAlwaysRemux: no
+
+# --- API --------------------------------------------------------------------
+# Bound to the compose network only; NGINX does not proxy it. `core-api` drives
+# path configuration through this.
+api: yes
+apiAddress: :9997
+
+metrics: yes
+metricsAddress: :9998
+
+# --- Authentication ---------------------------------------------------------
+# Anonymous publish/read is acceptable only because this port is not exposed
+# beyond the compose network. Before any deployment reachable from an operator
+# network, `authMethod: http` must point at `core-api`, so that viewing a camera
+# is subject to the same four-axis authorization as everything else, and is
+# audited (Operational SRS RBA-002, AUD-004).
+authInternalUsers:
+  - user: any
+    ips: ["172.16.0.0/12", "127.0.0.1/32"]
+    permissions:
+      - action: publish
+      - action: read
+
+pathDefaults:
+  # Do not connect to a source until a viewer asks. Idle cameras cost nothing.
+  sourceOnDemand: yes
+  sourceOnDemandStartTimeout: 10s
+  sourceOnDemandCloseAfter: 30s
+
+  # No recording here. The continuous recording buffer of Operational SRS RPL-001
+  # is a separate, encrypted, access-audited system, and it is blocked pending
+  # ADR 0011 and a Data Protection Impact Assessment. MediaMTX must not quietly
+  # start writing video of a million people to disk.
+  record: no
+
+paths:
+  # Camera paths are created at runtime by `core-api` through the MediaMTX API,
+  # from the camera registry. No camera is hard-coded here.
+  ~^cam-.*$:
+    source: publisher

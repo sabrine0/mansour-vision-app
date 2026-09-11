@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    @apply bg-surface text-content antialiased;
+  }
+
+  /* Operators work through the night beside a video wall. A visible focus ring
+     is not decoration — a keyboard-driven console is unusable without one. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-severity-info ring-offset-2 ring-offset-surface;
+  }
+
+  /* An operator may be watching a crowd surge. Nothing on this screen animates
+     for decoration, and everything respects a stated preference not to. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

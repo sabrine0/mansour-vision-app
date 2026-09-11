@@ -1,0 +1,246 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "22"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # ADR 0002. The licensing posture is enforced by the build, not by a review.
+  #
+  # `ultralytics` (YOLOv8 / YOLO11) is AGPL-3.0. Its network clause would oblige
+  # us to release the source of the entire platform to every operator who logs in,
+  # which is incompatible with proprietary deployment to a government client.
+  # This job is the reason that cannot happen by accident.
+  # ---------------------------------------------------------------------------
+  license-gate:
+    name: License gate (ADR 0002)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install runtime dependencies only
+        run: |
+          python -m pip install --upgrade pip
+          pip install ./packages/py-common ./packages/contracts
+          pip install ./services/core-api ./services/vision-worker \
+                      ./services/alert-engine ./services/analytics-consumer
+          pip install pip-licenses cyclonedx-bom
+
+      - name: Assert no copyleft dependency is present
+        run: |
+          pip-licenses --format=markdown --with-authors --with-urls > licenses.md
+          pip-licenses --fail-on="GNU Affero General Public License v3;GNU General Public License v3 (GPLv3);GNU General Public License v2 (GPLv2);Server Side Public License (SSPL)"
+
+      - name: Assert ultralytics is absent
+        run: |
+          if pip show ultralytics > /dev/null 2>&1; then
+            echo "::error::ultralytics is installed. It is AGPL-3.0. See docs/adr/0002."
+            exit 1
+          fi
+          echo "ultralytics is absent, as required by ADR 0002."
+
+      - name: Generate SBOM
+        run: cyclonedx-py environment --output-format json --outfile sbom.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-and-licenses
+          path: |
+            sbom.json
+            licenses.md
+
+  python:
+    name: Python — lint, types, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ./packages/py-common[test] -e ./packages/contracts[test]
+          pip install -e ./services/core-api[test] -e ./services/vision-worker[test]
+          pip install -e ./services/alert-engine[test] -e ./services/analytics-consumer[test]
+          pip install ruff mypy pytest-cov
+
+      - name: Ruff (lint)
+        run: ruff check --output-format=github .
+
+      - name: Ruff (format)
+        run: ruff format --check .
+
+      - name: Mypy (strict)
+        # By package, never by path: the src/ layout otherwise resolves each file
+        # under two module names and mypy refuses to continue.
+        run: |
+          mypy -p mansour_common -p mansour_contracts -p mansour_api \
+               -p mansour_vision_worker -p mansour_alert_engine -p mansour_analytics
+
+      - name: Pytest
+        run: pytest --cov --cov-report=xml --cov-report=term-missing -m "not integration"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: python-coverage
+          path: coverage.xml
+
+  # ---------------------------------------------------------------------------
+  # The contract is generated from one source. If a change is not propagated to
+  # both the schemas and the TypeScript types, the build fails here — rather than
+  # at 2am on the spine, when a consumer meets a field it has never seen.
+  # ---------------------------------------------------------------------------
+  contracts:
+    name: Contracts are in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: pip install ./packages/py-common ./packages/contracts
+      - run: npm ci
+
+      - name: JSON Schemas match the pydantic models
+        run: python -m mansour_contracts.export --check --out packages/contracts/schema
+
+      - name: TypeScript types match the JSON Schemas
+        run: npm run contracts:check
+
+  frontend:
+    name: Frontend — lint, types, tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run format:check
+      - run: npm run build
+
+  docker:
+    name: Images build
+    runs-on: ubuntu-latest
+    needs: [license-gate]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: core-api
+            package: mansour_api
+            port: 8000
+          - service: vision-worker
+            package: mansour_vision_worker
+            port: 8080
+          - service: alert-engine
+            package: mansour_alert_engine
+            port: 8080
+          - service: analytics-consumer
+            package: mansour_analytics
+            port: 8080
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/python-service.Dockerfile
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            SERVICE_PACKAGE=${{ matrix.package }}
+            GIT_SHA=${{ github.sha }}
+          push: false
+          load: true
+          tags: mansour/${{ matrix.service }}:ci
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Image runs and reports liveness
+        run: |
+          docker run -d --name svc \
+            -e HEALTH_PORT=${{ matrix.port }} \
+            -e API_PORT=${{ matrix.port }} \
+            -p ${{ matrix.port }}:${{ matrix.port }} \
+            -e POSTGRES_PASSWORD=ci -e REDIS_HOST=127.0.0.1 \
+            mansour/${{ matrix.service }}:ci
+
+          healthy=false
+          for attempt in $(seq 1 15); do
+            if curl --fail --silent \
+              http://localhost:${{ matrix.port }}/healthz > /dev/null; then
+              healthy=true
+              break
+            fi
+            if ! docker inspect --format='{{.State.Running}}' svc | grep -qx true; then
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$healthy" != true ]; then
+            docker logs svc
+            docker inspect svc
+            exit 1
+          fi
+
+          docker logs svc
+          docker rm -f svc
+
+  dashboard-image:
+    name: Dashboard image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/dashboard.Dockerfile
+          push: false
+          tags: mansour/command-center:ci
+          cache-from: type=gha,scope=dashboard
+          cache-to: type=gha,mode=max,scope=dashboard
+
+  compose:
+    name: Compose configuration is valid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create placeholder secrets
+        run: |
+          mkdir -p infra/secrets
+          openssl rand -base64 32 > infra/secrets/postgres_password
+          openssl rand -base64 32 > infra/secrets/redis_password
+      - run: docker compose -f infra/compose/docker-compose.yml config --quiet

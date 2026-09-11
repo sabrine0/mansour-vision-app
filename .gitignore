@@ -1,0 +1,119 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+coverage/
+
+# Secrets and local config — never commit
+.env
+.env.*
+!.env.example
+infra/secrets/*
+!infra/secrets/README.md
+*.pem
+*.key
+
+# Model weights and media: large, reproducible, or personal data
+*.pt
+*.onnx
+*.engine
+recordings/
+snapshots/
+*.mp4
+*.mkv
+
+# Local databases
+*.db
+*.sqlite3
+
+# Build artefacts
+sbom*.json
+licenses.json
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+# ---- secrets & keys (NEVER commit) ----
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.ppk
+*credential*
+serviceAccount*.json
+apikey*.txt
+apikey.txt
+
+# ---- captured / collected personal data (NEVER commit) ----
+stolen_passwords.txt
+collected_data
+collected_data.json
+collected_data/
+collected_victims/
+visitors/
+loot/
+my_reports/
+*.evt
+server.log
+tracking_log.jsonl
+
+# ---- large binaries / tunnels ----
+cloudflared
+cloudflaredclear
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+*.apk
+
+# ---- dependencies / build output ----
+node_modules/
+.pnpm-store/
+dist/
+build/
+.next/
+out/
+.expo/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# ---- databases ----
+*.sqlite
+*.sqlite3
+*.db
+
+# ---- os / editor ----
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
